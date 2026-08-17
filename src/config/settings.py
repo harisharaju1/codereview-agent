@@ -23,13 +23,23 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "production"] = "development"
 
     # No `= default` here means these fields are *required* — constructing
-    # Settings() without GITHUB_CLIENT_ID etc. set in the environment raises
+    # Settings() without GITHUB_APP_ID etc. set in the environment raises
     # immediately. This is the "fail fast at startup" pattern: better to
     # crash on boot with a clear message than fail confusingly later on the
     # first real request that needs one of these.
-    github_client_id: str
-    github_client_secret: str
-    github_oauth_redirect_uri: str = "http://localhost:8000/auth/github/callback"
+    #
+    # These replaced GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET/
+    # GITHUB_OAUTH_REDIRECT_URI when this project moved from a GitHub OAuth
+    # App to a GitHub App — see docs/week-1-day-2-github-app-plan.md. A
+    # GitHub App authenticates as itself (a signed JWT, verified against a
+    # private key) rather than as a logged-in user, so there's no client
+    # secret or redirect URI in this model at all.
+    github_app_id: str
+    github_app_private_key_path: str
+    # The App's URL-safe public name (visible in its settings page URL,
+    # e.g. github.com/settings/apps/<this-slug>) — distinct from the numeric
+    # App ID, and needed to build the public "install this app" page URL.
+    github_app_slug: str
     session_secret_key: str
 
 

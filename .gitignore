@@ -11,3 +11,4 @@ wheels/
 
 # Secrets — never commit real credentials
 .env
+*.pem
