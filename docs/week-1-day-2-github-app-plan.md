@@ -21,15 +21,16 @@ Manual step, in GitHub's UI, replacing (not editing) the OAuth App registered fo
 2. Name it (e.g. "codereview-agent-dev") — this name becomes part of its public install URL
 3. Homepage URL: `http://localhost:8000`
 4. **Webhook**: uncheck "Active" for now — this project doesn't consume webhooks yet (that's later, per the learning plan's Week 4 mention of a webhook-triggered flow)
-5. **Permissions** — this is the entire point of the migration, set deliberately narrow:
+5. **Setup URL** (under "Identifying and authorizing users" / "Post installation"): set to `http://localhost:8000/github-app/callback`, and check "Redirect on update" too, so both a fresh install and a later change to an existing installation's repo selection land back here. This is a separate field from Homepage URL — Homepage URL is purely informational (shown on the App's public listing page) and has no effect on redirects. Without a Setup URL configured, GitHub sends the browser to its own generic "installation complete" page after install instead of back to `/github-app/callback`, and this app never learns the `installation_id` at all.
+6. **Permissions** — this is the entire point of the migration, set deliberately narrow:
    - Repository permissions → **Pull requests: Read-only**
    - Repository permissions → **Contents: Read-only** (needed to fetch diff content)
    - Repository permissions → **Metadata: Read-only** (mandatory minimum GitHub requires for any App)
    - Leave every other permission at "No access"
-6. **Where can this GitHub App be installed?** → "Only on this account" (your own account, for now)
-7. Create the App
-8. On the App's settings page: note the **App ID** (a number), and under "Private keys," generate and download a `.pem` private key file
-9. **Install the App**: from the App's settings page, click "Install App," choose your account, and select either "All repositories" or specific repos to install it on — this creates the **installation** the rest of this plan depends on
+7. **Where can this GitHub App be installed?** → "Only on this account" (your own account, for now)
+8. Create the App
+9. On the App's settings page: note the **App ID** (a number), and under "Private keys," generate and download a `.pem` private key file
+10. **Install the App**: from the App's settings page, click "Install App," choose your account, and select either "All repositories" or specific repos to install it on — this creates the **installation** the rest of this plan depends on
 
 These go into local `.env` (never committed):
 ```

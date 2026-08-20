@@ -61,6 +61,14 @@ Week 1 originally built GitHub login via a classic **OAuth App**, whose only ava
 
 The signed-cookie *mechanism* (`itsdangerous`, sign/verify with a salt) survived the rewrite unchanged — only what it signs changed, from an opaque session id to an installation id. See the Day 2 GitHub App retrospective for the full before/after and manual verification notes.
 
+### ⚠️ Known gap: `/github-app/callback` doesn't handle `setup_action=request`
+
+GitHub's install redirect sends `setup_action` as one of three values: `install`, `update`, or `request`. The third happens when the App requires org-admin approval and a non-admin org member requests an install instead of completing one — critically, **no `installation_id` is sent in that case**, since nothing was actually installed.
+
+`callback` in `src/routers/github_app.py` declares `installation_id: int` as a required query param, so a `request` redirect would currently fail FastAPI's own validation with a `422` rather than being handled gracefully (e.g. acknowledging the pending request without trying to sign/cache an installation id that doesn't exist).
+
+This can't happen yet: `setup_action=request` is only reachable once the App's install target is something other than "Only on this account" (org installs with an approval requirement, or "Any account"). Not fixing now, since there's no way to exercise or verify the fix until that setting actually changes — revisit this note if/when the App is opened up to org installs or "Any account."
+
 ---
 
 ## How to Read This Doc Over Time

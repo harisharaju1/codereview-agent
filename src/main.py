@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 from src.dependencies.http_client import lifespan
-from src.routers import github_app, health
+from src.routers import github_app, health, pull_requests
 
 # This is the one place the app object itself gets constructed — everything
 # else (routers, dependencies, services) is written to be wired together
@@ -15,3 +15,4 @@ app = FastAPI(title="codereview-agent", lifespan=lifespan)
 # routes all end up under /github-app, e.g. /github-app/install).
 app.include_router(health.router)
 app.include_router(github_app.router)
+app.include_router(pull_requests.router)

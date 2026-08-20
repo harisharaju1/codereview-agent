@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # SettingsConfigDict configures where BaseSettings looks for values.
     # env_file=".env" means: if a .env file exists in the working directory,
     # read it too (real process env vars still take priority over it).
+    # This means that the process' env vars will take precedence over
+    # any recent .env file edit that might be done, causing confusion in
+    # the value being generated for said env vars.
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     # `Literal["a", "b", "c"]` is a type hint meaning "must be exactly one of
