@@ -15,16 +15,28 @@ INSTALLATION_COOKIE_NAME = "installation_id"
 INSTALLATION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30  # 30 days
 
 
+# Summary: builds the itsdangerous signer used to sign and verify the
+# installation_id cookie. A dedicated salt ("installation") keeps this
+# signer's output distinct from any other cookie this project might sign
+# with the same secret key.
 def _serializer(settings: Settings) -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(settings.session_secret_key, salt="installation")
 
 
+# Summary: turns a plain installation_id into a signed, tamper-evident
+# string suitable for a cookie. Exists so /github-app/callback can hand the
+# browser something it can carry around without being able to forge or
+# alter which installation it points at.
 def sign_installation_id(installation_id: int, settings: Settings) -> str:
     # itsdangerous signs strings, not ints — str(...) here, int(...) on the
     # way back out in get_current_installation_id below.
     return _serializer(settings).dumps(str(installation_id))
 
 
+# Summary: the Depends()-injectable "current installation" check — reads,
+# verifies, and unsigns the installation_id cookie, or raises 401. Exists as
+# the one place every installation-scoped route asserts a valid installation
+# rather than each route re-implementing the same cookie check.
 def get_current_installation_id(
     request: Request, settings: Settings = Depends(get_settings)
 ) -> int:

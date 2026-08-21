@@ -1,0 +1,18 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    # Reuses the exact same .env this project already uses for `uv run` —
+    # no separate compose-specific config mechanism.
+    env_file:
+      - .env
+    volumes:
+      # Mounted read-only, never baked into the image — the same
+      # "secrets never get committed/baked in" discipline already
+      # established for .gitignore's *.pem rule, just applied to Docker's
+      # build/run boundary instead of git's. The container-side path
+      # must match GITHUB_APP_PRIVATE_KEY_PATH in .env (WORKDIR is /app,
+      # so the default "./github-app-private-key.pem" resolves to
+      # /app/github-app-private-key.pem inside the container).
+      - ./github-app-private-key.pem:/app/github-app-private-key.pem:ro

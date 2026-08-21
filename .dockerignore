@@ -1,0 +1,16 @@
+.venv
+.git
+__pycache__
+*.py[oc]
+.pytest_cache
+.ruff_cache
+
+# Secrets — never let these into the build context, same reasoning as
+# .gitignore
+.env
+*.pem
+
+docs
+tests
+README.md
+.DS_Store

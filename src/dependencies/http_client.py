@@ -5,6 +5,10 @@ import httpx
 from fastapi import FastAPI, Request
 
 
+# Summary: opens one shared httpx.AsyncClient when the app starts and closes
+# it when the app stops. Exists so every request reuses the same connection
+# pool to GitHub instead of paying for a fresh TCP+TLS handshake each time.
+#
 # @asynccontextmanager turns an async generator function (one that `yield`s
 # exactly once) into something usable with `async with`. Everything before
 # the `yield` runs on entry ("setup"); everything after it runs on exit
@@ -34,6 +38,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         yield
 
 
+# Summary: hands a route the one shared httpx.AsyncClient created by
+# lifespan() above. Exists as the Depends()-injectable seam every router
+# uses to reach that client, rather than each router reaching into
+# app.state directly.
 def get_http_client(request: Request) -> httpx.AsyncClient:
     # A FastAPI dependency is just a plain function; declaring a route
     # parameter as `Depends(get_http_client)` tells FastAPI to call this

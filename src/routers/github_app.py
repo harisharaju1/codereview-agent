@@ -16,6 +16,10 @@ from src.services import github_app_auth, installation_token_cache
 router = APIRouter(prefix="/github-app", tags=["github-app"])
 
 
+# Summary: sends the browser to GitHub's own "install this app" page.
+# Exists as the entry point a user visits to start installing the app on
+# their account/org — everything downstream (PRs, diffs) depends on an
+# installation existing first.
 @router.get("/install")
 async def install(settings: Settings = Depends(get_settings)) -> RedirectResponse:
     # No `state`/CSRF handling needed here, unlike the OAuth login redirect
@@ -26,6 +30,10 @@ async def install(settings: Settings = Depends(get_settings)) -> RedirectRespons
     return RedirectResponse(url=install_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
+# Summary: GitHub's landing point after an install (or update) completes.
+# Exists to receive the new installation_id and turn it into a signed
+# cookie, so every later request can prove which installation it's scoped
+# to without the browser having to remember a raw, forgeable id.
 @router.get("/callback")
 async def callback(
     response: Response,
@@ -48,6 +56,10 @@ async def callback(
     return {"installation_id": str(installation_id), "setup_action": setup_action}
 
 
+# Summary: reports which account this installation belongs to and which
+# repos it can currently see. Exists as the "who am I, what can I reach"
+# check for the app's own identity model — the GitHub App equivalent of a
+# /me endpoint, just scoped to an installation instead of a logged-in user.
 @router.get("/installations/current")
 async def current_installation(
     installation_id: int = Depends(get_current_installation_id),

@@ -20,6 +20,10 @@ _JWT_EXPIRY_SECONDS = 10 * 60
 _JWT_CLOCK_SKEW_SECONDS = 60
 
 
+# Summary: mints a short-lived, RS256-signed JWT asserting "I am this
+# GitHub App." Exists because a GitHub App authenticates as itself (via a
+# private key it holds) rather than impersonating a user — this JWT is the
+# credential every other App-level call (below) is authenticated with.
 def build_app_jwt(settings: Settings) -> str:
     private_key = Path(settings.github_app_private_key_path).read_text()
     now = int(time.time())
@@ -41,6 +45,11 @@ def build_app_jwt(settings: Settings) -> str:
     return jwt.encode(payload, private_key, algorithm="RS256")
 
 
+# Summary: exchanges an App JWT for a short-lived (~1hr) installation
+# access token. Exists as the one place that mints the actual credential
+# used to call repo-scoped GitHub endpoints — installation_token_cache.py
+# is what calls this, not routers directly, so callers never mint tokens
+# by hand.
 async def fetch_installation_token(
     client: httpx.AsyncClient, app_jwt: str, installation_id: int
 ) -> InstallationAccessToken:
@@ -59,6 +68,10 @@ async def fetch_installation_token(
     return InstallationAccessToken.model_validate(response.json())
 
 
+# Summary: fetches an installation's own metadata (currently just its
+# account login) using the App JWT. Exists to answer "which account is this
+# installation_id actually for" — /installations/current is the only
+# caller, since that's the only place this human-readable detail matters.
 async def fetch_installation(
     client: httpx.AsyncClient, app_jwt: str, installation_id: int
 ) -> Installation:

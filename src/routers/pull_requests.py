@@ -10,6 +10,9 @@ from src.services import installation_token_cache, pull_requests
 router = APIRouter(prefix="/github-app", tags=["pull-requests"])
 
 
+# Summary: lists a repo's open PRs, scoped to the caller's installation.
+# Exists as the first "actually do something with GitHub data" endpoint —
+# everything before this (Days 1-2) was about getting authenticated at all.
 @router.get("/repos/{owner}/{repo}/pulls")
 async def list_pull_requests(
     owner: str,
@@ -27,6 +30,9 @@ async def list_pull_requests(
         raise _translate_github_error(exc) from exc
 
 
+# Summary: fetches one PR's raw diff text. Exists as the eventual input to
+# Week 2's review logic — nothing reviews anything yet, this just proves the
+# raw material can be fetched correctly, with real error handling.
 @router.get("/repos/{owner}/{repo}/pulls/{number}/diff")
 async def get_pull_request_diff(
     owner: str,
@@ -52,6 +58,10 @@ async def get_pull_request_diff(
     return Response(content=diff_text, media_type="text/plain")
 
 
+# Summary: turns a failed GitHub call into this service's own HTTP error.
+# Exists so both endpoints above share one place that decides "404 means
+# not found/not visible" and "anything else means an upstream failure,"
+# instead of duplicating that judgment call per route.
 def _translate_github_error(exc: httpx.HTTPStatusError) -> HTTPException:
     # GitHub deliberately returns 404 for both "this repo doesn't exist" and
     # "this installation can't see this repo" — it never distinguishes the

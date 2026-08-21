@@ -13,6 +13,9 @@ _MAX_ATTEMPTS = 3
 _BASE_DELAY_SECONDS = 0.5
 
 
+# Summary: detects GitHub's specific "primary rate limit exhausted" shape.
+# Exists to distinguish that case from an ordinary 403 (not allowed at all,
+# never worth retrying) using GitHub's own rate-limit headers.
 def _is_rate_limited(response: httpx.Response) -> bool:
     # GitHub signals its *primary* rate limit via 403 (not the more common
     # 429), plus this specific header pair — a plain 403 can also mean
@@ -21,10 +24,16 @@ def _is_rate_limited(response: httpx.Response) -> bool:
     return response.status_code == 403 and response.headers.get("X-RateLimit-Remaining") == "0"
 
 
+# Summary: identifies a 5xx as a plausibly-transient server-side failure.
+# Exists to separate "GitHub's infrastructure hiccuped, worth retrying"
+# from client-side errors (4xx) that retrying could never fix.
 def _is_transient_server_error(response: httpx.Response) -> bool:
     return 500 <= response.status_code < 600
 
 
+# Summary: converts GitHub's X-RateLimit-Reset timestamp into a "how long
+# to wait from now" duration. Exists so call_with_retry can sleep exactly
+# as long as GitHub says is needed, instead of guessing with backoff.
 def _seconds_until_reset(response: httpx.Response) -> float:
     reset_at = int(response.headers["X-RateLimit-Reset"])
     # GitHub tells us exactly when the limit resets — never negative, since
@@ -32,6 +41,10 @@ def _seconds_until_reset(response: httpx.Response) -> float:
     return max(reset_at - time.time(), 0)
 
 
+# Summary: computes an exponential-backoff wait with random jitter for a
+# given attempt number. Exists specifically to avoid the thundering-herd
+# problem — jitter stops many callers who failed simultaneously from all
+# retrying at exactly the same instant.
 def _backoff_delay(attempt: int) -> float:
     # Exponential growth (attempt 1 -> base, attempt 2 -> 2x base, ...) plus
     # a random jitter component. Jitter matters specifically when *multiple*
@@ -41,6 +54,10 @@ def _backoff_delay(attempt: int) -> float:
     return _BASE_DELAY_SECONDS * (2 ** (attempt - 1)) + random.uniform(0, _BASE_DELAY_SECONDS)
 
 
+# Summary: runs an HTTP call with GitHub-aware retry policy — honors
+# X-RateLimit-Reset on rate limits, backs off with jitter on transient
+# 5xxs, and never retries anything else. Exists as the single retry
+# mechanism every GitHub-calling function in this project routes through.
 async def call_with_retry(
     request_fn: Callable[[], Awaitable[httpx.Response]],
     *,

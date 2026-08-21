@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     session_secret_key: str
 
 
+# Summary: returns the app's single validated Settings instance, building
+# it from the environment on first call and reusing it on every call after.
+# Exists so every route/dependency shares one source of truth for config
+# instead of each constructing (and re-validating) its own Settings().
+#
 # @lru_cache is a decorator from the standard library that memoizes a
 # function's return value based on its arguments — call get_settings() as
 # many times as you want, the *first* call actually builds a Settings()

@@ -20,10 +20,17 @@ _REFRESH_MARGIN = timedelta(seconds=60)
 _tokens: dict[int, InstallationAccessToken] = {}
 
 
+# Summary: checks whether a cached token is still safely usable, with a
+# margin before its real expiry. Exists to keep the "is this stale" check
+# in one place, applied identically by get_installation_token below.
 def _is_fresh(token: InstallationAccessToken) -> bool:
     return datetime.now(UTC) < (token.expires_at - _REFRESH_MARGIN)
 
 
+# Summary: returns a valid installation access token, from cache when
+# possible, minting and caching a fresh one otherwise. Exists as the single
+# entry point every GitHub-calling function uses to get a token — none of
+# them need to know or care whether it was cached or just minted.
 async def get_installation_token(
     client: httpx.AsyncClient, settings: Settings, installation_id: int
 ) -> str:
