@@ -6,6 +6,7 @@ import jwt
 
 from src.config.settings import Settings
 from src.schemas.github_app import Installation, InstallationAccessToken
+from src.services.github_retry import call_with_retry
 
 API_BASE = "https://api.github.com"
 
@@ -43,29 +44,31 @@ def build_app_jwt(settings: Settings) -> str:
 async def fetch_installation_token(
     client: httpx.AsyncClient, app_jwt: str, installation_id: int
 ) -> InstallationAccessToken:
-    response = await client.post(
-        f"{API_BASE}/app/installations/{installation_id}/access_tokens",
-        # Authenticated as the App itself (the JWT), not as an installation
-        # — this call is what *produces* an installation token in the first
-        # place, so it can't use one yet.
-        headers={
-            "Authorization": f"Bearer {app_jwt}",
-            "Accept": "application/vnd.github+json",
-        },
+    response = await call_with_retry(
+        lambda: client.post(
+            f"{API_BASE}/app/installations/{installation_id}/access_tokens",
+            # Authenticated as the App itself (the JWT), not as an
+            # installation — this call is what *produces* an installation
+            # token in the first place, so it can't use one yet.
+            headers={
+                "Authorization": f"Bearer {app_jwt}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
     )
-    response.raise_for_status()
     return InstallationAccessToken.model_validate(response.json())
 
 
 async def fetch_installation(
     client: httpx.AsyncClient, app_jwt: str, installation_id: int
 ) -> Installation:
-    response = await client.get(
-        f"{API_BASE}/app/installations/{installation_id}",
-        headers={
-            "Authorization": f"Bearer {app_jwt}",
-            "Accept": "application/vnd.github+json",
-        },
+    response = await call_with_retry(
+        lambda: client.get(
+            f"{API_BASE}/app/installations/{installation_id}",
+            headers={
+                "Authorization": f"Bearer {app_jwt}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
     )
-    response.raise_for_status()
     return Installation.model_validate(response.json())
