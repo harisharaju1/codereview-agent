@@ -45,6 +45,25 @@ class Settings(BaseSettings):
     github_app_slug: str
     session_secret_key: str
 
+    # WHY THIS IS REQUIRED (no default) WHILE anthropic_model BELOW ISN'T:
+    # the distinction is "secret vs. plain configuration," not "important
+    # vs. unimportant." A missing API key means every Claude call this app
+    # makes will fail — there's no sane default for a secret, so the only
+    # honest choice is to refuse to start at all rather than start and fail
+    # confusingly on the first review request. A missing model name, by
+    # contrast, has a perfectly reasonable default (the current Sonnet
+    # generation) — forcing every environment to specify it would just be
+    # friction with no corresponding safety benefit, the same reasoning
+    # `environment`'s Literal default above already follows.
+    anthropic_api_key: str
+    # Kept as a plain configurable string, not a Literal["claude-...", ...]
+    # like `environment` above — Anthropic ships new model identifiers on
+    # its own release schedule, and a Literal here would mean this file
+    # needs a code change (and a redeploy) every time a newer model comes
+    # out, just to use it. `environment`'s three values are genuinely fixed
+    # by this project's own logic; a model name isn't this project's to fix.
+    anthropic_model: str = "claude-sonnet-5"
+
 
 # Summary: returns the app's single validated Settings instance, building
 # it from the environment on first call and reusing it on every call after.

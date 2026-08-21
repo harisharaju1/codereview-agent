@@ -44,6 +44,12 @@ def _default_env(_test_github_app_private_key_path, monkeypatch):
     monkeypatch.setenv("GITHUB_APP_ID", "123456")
     monkeypatch.setenv("GITHUB_APP_PRIVATE_KEY_PATH", _test_github_app_private_key_path)
     monkeypatch.setenv("GITHUB_APP_SLUG", "test-app-slug")
+    # A syntactically-plausible-looking but entirely fake key — nothing in
+    # the automated test suite makes a real Anthropic API call (Day 1's
+    # tests only exercise get_anthropic_client's dependency-sharing
+    # behavior, not any actual request), so this only needs to satisfy
+    # Settings' "must be present" validation, never real authentication.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-api-key")
 
     # get_settings() is lru_cache'd for the running app, but each test may
     # set its own env vars — clear the cache so every test sees a fresh
