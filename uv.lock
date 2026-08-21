@@ -170,6 +170,7 @@ dependencies = [
     { name = "anthropic" },
     { name = "fastapi", extra = ["standard"] },
     { name = "itsdangerous" },
+    { name = "oxlint" },
     { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "uvicorn", extra = ["standard"] },
@@ -189,6 +190,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=1.0.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.141.1" },
     { name = "itsdangerous", specifier = ">=2.2.0" },
+    { name = "oxlint", specifier = ">=1.79.0" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.13.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.0" },
@@ -744,6 +746,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729, upload-time = "2022-08-14T12:40:10.846Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
+]
+
+[[package]]
+name = "oxlint"
+version = "1.79.0"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/08/6d/1a488a4483a5a3f0e75f9eb0c9326a817d24bf458b956b4f1325ef49e268/oxlint-1.79.0-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:00a04b2fc6842562a24764622b37693f153eb2fd3f3eafe8568a99470a33da71", size = 6370430, upload-time = "2026-08-19T06:35:52.499Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/fe/f0f39c663fbd15886aa22b2800950b66fa0a0ac4f815fc36875bf8475aa5/oxlint-1.79.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:15e94ccf29fb3de5550e4568cd0a6205d83bbbf82db1c6b15290d1f454feeb5f", size = 5740623, upload-time = "2026-08-19T06:35:54.35Z" },
+    { url = "https://files.pythonhosted.org/packages/de/34/f45e3eb12fde792bab0cadf94bc3d8d2e53da69ce913075981e5cd0ef97e/oxlint-1.79.0-py3-none-manylinux_2_18_aarch64.whl", hash = "sha256:3a34c6247d01f6101dc13c3303d82dd584c56105356d9118ba6f2a13861b7c59", size = 6136429, upload-time = "2026-08-19T06:35:56.217Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/f8/e26bda3644afa773a1df12a7372eb587f5a37d0949e466ceaadd4e6074d0/oxlint-1.79.0-py3-none-manylinux_2_18_x86_64.whl", hash = "sha256:b71043397fb28475f972fbe646c4e0536d494e959dd335d7520bab47546ee753", size = 6653736, upload-time = "2026-08-19T06:35:58.145Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/b6/e8b4649855195fe9d29e2900bdb45d9110b87ac6703bc393430712847aac/oxlint-1.79.0-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:669668d3f69f293052f092dd4d5f63e2114536f4e3d873a47103d458fc143fec", size = 6140656, upload-time = "2026-08-19T06:35:59.888Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/31/37a97ee732bd0016abd2fbc9eb47b3bf2987bf1fd7efda0ca3b140389dfd/oxlint-1.79.0-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:2b0b536c9e4796d5a7d0cfa4cb795bc6664d4ab97950077445135bc344fd4134", size = 6718071, upload-time = "2026-08-19T06:36:01.893Z" },
+    { url = "https://files.pythonhosted.org/packages/05/29/298dbc5e0ce4a2dc5e582785f983d60781672405db52f05e591761ce8611/oxlint-1.79.0-py3-none-win_amd64.whl", hash = "sha256:ace386883a5a49d9cf2b909c794b4c550d05d5cc37e0c231cfbe1de7bb75df9a", size = 6200662, upload-time = "2026-08-19T06:36:03.89Z" },
 ]
 
 [[package]]
