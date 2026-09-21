@@ -12,6 +12,7 @@ from src.dependencies.installation import (
 )
 from src.schemas.github_app import Installation, RepositoryListResponse
 from src.services import github_app_auth, installation_token_cache
+from src.services.github_retry import call_with_retry
 
 router = APIRouter(prefix="/github-app", tags=["github-app"])
 
@@ -72,14 +73,19 @@ async def current_installation(
     installation_token = await installation_token_cache.get_installation_token(
         client, settings, installation_id
     )
-    repos_response = await client.get(
-        "https://api.github.com/installation/repositories",
-        headers={
-            "Authorization": f"Bearer {installation_token}",
-            "Accept": "application/vnd.github+json",
-        },
+    # This call predates github_retry.py (added Week 1 Day 4) and was
+    # never updated to use it — every other GitHub call in this project
+    # goes through call_with_retry for consistent rate-limit/transient-5xx
+    # handling; this one should too.
+    repos_response = await call_with_retry(
+        lambda: client.get(
+            "https://api.github.com/installation/repositories",
+            headers={
+                "Authorization": f"Bearer {installation_token}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
     )
-    repos_response.raise_for_status()
     repositories = RepositoryListResponse.model_validate(repos_response.json())
 
     return {"installation": installation, "repositories": repositories}

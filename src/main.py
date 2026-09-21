@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from src.dependencies import anthropic_client, http_client
-from src.routers import github_app, health, pull_requests
+from src.routers import github_app, health, pull_requests, review
 
 
 # Summary: composes this app's separate resource lifespans (the shared
@@ -45,3 +45,4 @@ app = FastAPI(title="codereview-agent", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(github_app.router)
 app.include_router(pull_requests.router)
+app.include_router(review.router)
