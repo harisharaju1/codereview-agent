@@ -26,9 +26,20 @@ class FakeToolUseBlock:
 
 
 @dataclass
+class FakeUsage:
+    # Small, fixed per-response token counts — good enough to prove
+    # run_review_agent sums usage across iterations (see
+    # test_multi_iteration_usage_is_summed_across_calls below), without
+    # needing to match any real Anthropic response's actual numbers.
+    input_tokens: int = 100
+    output_tokens: int = 20
+
+
+@dataclass
 class FakeMessage:
     content: list
     stop_reason: str = "tool_use"
+    usage: FakeUsage = field(default_factory=FakeUsage)
 
 
 class FakeMessages:
@@ -106,12 +117,17 @@ async def test_single_tool_call_then_submit_review(respx_mock):
         ]
     )
 
-    findings = await _run(fake_client)
+    result = await _run(fake_client)
 
-    assert len(findings) == 1
-    assert findings[0].file == "README.md"
-    assert findings[0].severity == "low"
+    assert len(result.findings) == 1
+    assert result.findings[0].file == "README.md"
+    assert result.findings[0].severity == "low"
     assert len(fake_client.messages.calls) == 2
+    # Two calls, FakeUsage's defaults (100 input / 20 output) each — proves
+    # usage is SUMMED across iterations, not just the final call's.
+    assert result.usage.input_tokens == 200
+    assert result.usage.output_tokens == 40
+    assert result.usage.estimated_cost_usd is not None
 
 
 async def test_multiple_sequential_tool_calls_before_submit(respx_mock):
@@ -143,9 +159,9 @@ async def test_multiple_sequential_tool_calls_before_submit(respx_mock):
         "https://api.github.com/repos/owner/repo/contents", params={"ref": "abc123"}
     ).mock(return_value=httpx.Response(200, json=[]))
 
-    findings = await _run(fake_client)
+    result = await _run(fake_client)
 
-    assert findings == []
+    assert result.findings == []
     assert len(fake_client.messages.calls) == 3
 
 
@@ -188,10 +204,10 @@ async def test_submit_review_self_corrects_after_invalid_input(respx_mock):
         ]
     )
 
-    findings = await _run(fake_client)
+    result = await _run(fake_client)
 
-    assert len(findings) == 1
-    assert findings[0].severity == "high"
+    assert len(result.findings) == 1
+    assert result.findings[0].severity == "high"
     # Confirms the retry actually happened via the loop, not a fluke of
     # only ever needing one call.
     assert len(fake_client.messages.calls) == 2
@@ -228,10 +244,17 @@ async def test_exceeds_max_iterations_raises(respx_mock):
     ]
     fake_client = FakeAnthropicClient(responses=responses)
 
-    with pytest.raises(review_agent.AgentExceededMaxIterationsError):
+    with pytest.raises(review_agent.AgentExceededMaxIterationsError) as exc_info:
         await _run(fake_client)
 
     assert len(fake_client.messages.calls) == review_agent.MAX_ITERATIONS
+    # A failed review still spent real tokens getting there — usage must
+    # be attached to the exception itself, not lost because no
+    # ReviewResult was ever constructed.
+    usage = exc_info.value.usage
+    assert usage.input_tokens == 100 * review_agent.MAX_ITERATIONS
+    assert usage.output_tokens == 20 * review_agent.MAX_ITERATIONS
+    assert usage.estimated_cost_usd is not None
 
 
 async def test_agent_stopping_without_tool_use_raises():
@@ -268,9 +291,9 @@ async def test_failing_tool_executor_surfaces_as_error_tool_result(respx_mock):
         ]
     )
 
-    findings = await _run(fake_client)
+    result = await _run(fake_client)
 
-    assert findings == []
+    assert result.findings == []
     second_call_messages = fake_client.messages.calls[1]["messages"]
     tool_result = next(
         block

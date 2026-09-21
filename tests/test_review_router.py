@@ -53,3 +53,34 @@ def test_review_pull_request_translates_anthropic_api_error_to_502(respx_mock, m
 
     assert response.status_code == 502
     assert response.json()["detail"] == "Claude API request failed"
+
+
+def test_review_pull_request_includes_usage_in_agent_failure_response(respx_mock, monkeypatch):
+    respx_mock.post("https://api.github.com/app/installations/123/access_tokens").mock(
+        return_value=httpx.Response(
+            201, json={"token": "ghs_test_token", "expires_at": "2999-01-01T00:00:00Z"}
+        )
+    )
+
+    from src.schemas.review import ReviewUsage
+    from src.services.review_agent import AgentExceededMaxIterationsError
+
+    async def _raise_exceeded(*args, **kwargs):
+        raise AgentExceededMaxIterationsError(
+            "Agent exceeded 8 iterations without calling submit_review",
+            usage=ReviewUsage(input_tokens=800, output_tokens=160, estimated_cost_usd=0.0016),
+        )
+
+    monkeypatch.setattr("src.routers.review.run_review_agent", _raise_exceeded)
+
+    with _authenticated_client() as client:
+        response = client.post("/github-app/repos/owner/repo/pulls/1/review")
+
+    assert response.status_code == 502
+    body = response.json()["detail"]
+    assert "exceeded 8 iterations" in body["error"]
+    assert body["usage"] == {
+        "input_tokens": 800,
+        "output_tokens": 160,
+        "estimated_cost_usd": 0.0016,
+    }

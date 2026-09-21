@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -5,6 +6,21 @@ from fastapi import FastAPI
 
 from src.dependencies import anthropic_client, http_client
 from src.routers import github_app, health, pull_requests, review
+
+# WHY THIS IS HERE, NOT LEFT TO PYTHON'S DEFAULT LOGGING BEHAVIOR:
+# with no configuration at all, a logger.info(...) call anywhere in this
+# project (e.g. review_agent.py's loop logging) produces no visible
+# output — Python's logging module only prints WARNING-and-above by
+# default (the "handler of last resort"), and uvicorn's own logging setup
+# configures ITS OWN loggers (uvicorn.access, uvicorn.error), not this
+# project's. basicConfig() here, called once at import time before the
+# app is even constructed, is what makes every logger.info(...) call
+# anywhere in this codebase actually reach the console the dev server
+# runs in. This is a minimal, whole-process choice — not yet a real
+# logging setup (structured logs, correlation ids, a proper handler
+# config) — see review_agent.py's own note on why logging exists at all
+# only in that one module so far.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
 
 # Summary: composes this app's separate resource lifespans (the shared
