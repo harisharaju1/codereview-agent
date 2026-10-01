@@ -12,6 +12,7 @@ from src.services.review_tools import (
     TOOL_DEFINITIONS,
     ToolCall,
     execute_tool_turn,
+    tool_choice_for,
 )
 
 # WHY THIS MODULE LOGS, WHEN NOTHING ELSE IN THIS PROJECT DOES YET:
@@ -126,6 +127,7 @@ async def run_review_agent(
             max_tokens=4096,
             system=SYSTEM_PROMPT,
             tools=TOOL_DEFINITIONS,
+            tool_choice=tool_choice_for(iteration, MAX_ITERATIONS),
             messages=messages,
         )
         logger.info("PR #%d review: stop_reason=%s", pr_number, response.stop_reason)

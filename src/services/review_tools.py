@@ -32,6 +32,10 @@ codebase, check whether touched dependencies are outdated, and run a real \
 linter against a changed file. Use them when the diff alone doesn't give \
 you enough context to judge whether something is actually a problem.
 
+When several checks are independent of each other (for example, reading \
+three different files), request them all in the same turn rather than \
+one per turn — your number of turns is limited.
+
 When you have gathered enough information, call submit_review exactly \
 once with your findings. Every finding you report MUST go through \
 submit_review — do not describe findings in plain text instead of calling \
@@ -165,6 +169,36 @@ TOOL_DEFINITIONS: list[dict] = [
 
 class SubmitReviewArgs(BaseModel):
     findings: list[ReviewFinding]
+
+
+# Summary: the tool_choice to send on a given iteration — "auto" normally,
+# but forced to submit_review on the final allowed iteration.
+#
+# WHY FORCE THE LAST TURN: without this, the model can ask for yet another
+# tool on its final allowed turn, leaving the engine no iteration to act
+# on the result — the review then fails with AgentExceededMaxIterationsError
+# after spending its whole budget and returns nothing. Forcing
+# {"type": "tool", "name": "submit_review"} means the model MUST turn
+# everything it has gathered so far into findings ("pencils down, hand in
+# what you have"). What this still can't guarantee: if that forced
+# submission fails validation, there's no iteration left to self-correct,
+# so AgentExceededMaxIterationsError remains possible — but as a rare
+# malformed-output failure, not the routine "ran out of time" one.
+#
+# WHY "auto" IS SENT EXPLICITLY ON NON-FINAL TURNS (rather than omitting
+# the parameter): it's the API's default either way, but naming it makes
+# every request's tool_choice visible in tests and logs, so the one turn
+# that differs is obvious by comparison.
+#
+# Alternatives considered (see docs/week-3/week-3-day-1-plan.md, A2):
+# raising MAX_ITERATIONS (treats the symptom; a bigger PR hits the new cap
+# too), telling the model its remaining budget each turn (advisory only),
+# and reserving the last TWO iterations for forced submission (costs an
+# investigation turn on every review to guard a failure not yet observed).
+def tool_choice_for(iteration: int, max_iterations: int) -> dict:
+    if iteration >= max_iterations:
+        return {"type": "tool", "name": "submit_review"}
+    return {"type": "auto"}
 
 
 def _dump_list(models: list[BaseModel]) -> str:

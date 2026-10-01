@@ -257,6 +257,44 @@ async def test_exceeds_max_iterations_raises(respx_mock):
     assert usage.estimated_cost_usd is not None
 
 
+async def test_final_iteration_forces_submit_review_and_succeeds(respx_mock):
+    _mock_pr_fetch(respx_mock)
+    respx_mock.get(
+        "https://api.github.com/repos/owner/repo/search/code",
+        params={"q": "x repo:owner/repo"},
+    ).mock(
+        return_value=httpx.Response(
+            200, json={"total_count": 0, "incomplete_results": False, "items": []}
+        )
+    )
+
+    # Keeps investigating on every non-final turn; on the final turn (where
+    # the real API would be forcing submit_review) it submits. The fake
+    # doesn't enforce tool_choice itself — what's under test is that the
+    # loop REQUESTS the forced choice on exactly the last iteration, and
+    # that a submission on that last iteration still counts as success
+    # rather than tipping over into AgentExceededMaxIterationsError.
+    responses = [
+        FakeMessage(
+            content=[FakeToolUseBlock(id=f"t{i}", name="search_codebase", input={"query": "x"})]
+        )
+        for i in range(review_agent.MAX_ITERATIONS - 1)
+    ] + [
+        FakeMessage(
+            content=[FakeToolUseBlock(id="final", name="submit_review", input={"findings": []})]
+        )
+    ]
+    fake_client = FakeAnthropicClient(responses=responses)
+
+    result = await _run(fake_client)
+
+    assert result.findings == []
+    calls = fake_client.messages.calls
+    assert len(calls) == review_agent.MAX_ITERATIONS
+    assert calls[-1]["tool_choice"] == {"type": "tool", "name": "submit_review"}
+    assert all(call["tool_choice"] == {"type": "auto"} for call in calls[:-1])
+
+
 async def test_agent_stopping_without_tool_use_raises():
     fake_client = FakeAnthropicClient(responses=[FakeMessage(content=[], stop_reason="end_turn")])
 
