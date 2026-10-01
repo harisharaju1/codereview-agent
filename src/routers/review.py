@@ -1,17 +1,17 @@
 import anthropic
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from src.config.settings import Settings, get_settings
 from src.dependencies.anthropic_client import get_anthropic_client
 from src.dependencies.http_client import get_http_client
 from src.dependencies.installation import get_current_installation_id
-from src.schemas.review import ReviewResult
+from src.schemas.review import Engine, ReviewResult
 from src.services import installation_token_cache
-from src.services.review_agent import (
+from src.services.review_engines import ENGINES
+from src.services.review_tools import (
     AgentDidNotSubmitReviewError,
     AgentExceededMaxIterationsError,
-    run_review_agent,
 )
 
 router = APIRouter(prefix="/github-app", tags=["review"])
@@ -39,12 +39,20 @@ async def review_pull_request(
     settings: Settings = Depends(get_settings),
     client: httpx.AsyncClient = Depends(get_http_client),
     anthropic_client: anthropic.AsyncAnthropic = Depends(get_anthropic_client),
+    # WHY A QUERY PARAMETER, NOT A SETTING: Week 3's comparison needs to
+    # pick the engine PER REQUEST against the same running server — a
+    # REVIEW_ENGINE env var would mean restarting between runs. Typed as the
+    # Engine Literal, so an unknown name is FastAPI's automatic 422 with no
+    # hand-written validation. Defaults to the Week 2 loop until Day 3's
+    # measurements justify a different default.
+    engine: Engine = Query("loop"),
 ) -> ReviewResult:
     installation_token = await installation_token_cache.get_installation_token(
         client, settings, installation_id
     )
+    run_engine = ENGINES[engine]
     try:
-        return await run_review_agent(
+        return await run_engine(
             client, anthropic_client, settings, installation_token, owner, repo, number
         )
     except (AgentDidNotSubmitReviewError, AgentExceededMaxIterationsError) as exc:

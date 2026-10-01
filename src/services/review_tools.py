@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from src.schemas.review import ReviewFinding
+from src.schemas.review import ReviewFinding, ReviewUsage
 from src.services.code_search import search_codebase
 from src.services.dependency_check import check_dependency_versions
 from src.services.github_content import fetch_file_content
@@ -23,6 +23,50 @@ from src.services.linters.dispatch import run_linter
 # other, so later measurements compare designs, not drift between copies.
 # Neither engine owns this module; both import from it.
 logger = logging.getLogger(__name__)
+
+# Capped the same way github_retry.py caps retries: not because 8 is a
+# magic number, but because SOME finite cap has to exist — an agent loop
+# with no ceiling can burn API budget indefinitely if the model never
+# converges on submit_review. "Eventually give up loudly" is the same
+# principle, applied to a confused LLM instead of a flaky network call.
+#
+# Lives here (moved from review_agent.py), along with the two exceptions
+# below, because it's part of the contract EVERY engine shares: the same
+# budget is what makes a loop-vs-graph comparison fair, and the same
+# exceptions are what let the router treat every engine identically.
+MAX_ITERATIONS = 8
+
+
+# Two distinct, named failure modes rather than one generic exception —
+# each means something different to whoever's debugging a failed review.
+# AgentDidNotSubmitReviewError: the model gave up/finished talking without
+# ever calling submit_review. AgentExceededMaxIterationsError: the model
+# kept calling tools past the budget this project is willing to spend on
+# one review. Distinguishing them costs nothing and tells a future reader
+# (or the router's error handling) which of two very different things
+# actually happened.
+#
+# WHY BOTH CARRY A `usage: ReviewUsage`, ADDED AFTER THE FACT:
+# a failed review still spends real, billed tokens — every iteration up to
+# the failure point already called the Claude API. Without this, a caller
+# would have no way to see what a *failed* review cost, only a successful
+# one (ReviewResult.usage) — an asymmetry found directly while testing: a
+# real run against a large PR hit AgentExceededMaxIterationsError, and the
+# tokens spent getting there were real but invisible anywhere in the
+# response. Attaching usage to the exception itself, rather than inventing
+# a second response shape for failures, means the router only has to reach
+# `exc.usage` to surface it, wherever it ends up in the error response.
+class AgentDidNotSubmitReviewError(Exception):
+    def __init__(self, message: str, usage: ReviewUsage):
+        super().__init__(message)
+        self.usage = usage
+
+
+class AgentExceededMaxIterationsError(Exception):
+    def __init__(self, message: str, usage: ReviewUsage):
+        super().__init__(message)
+        self.usage = usage
+
 
 SYSTEM_PROMPT = """You are an expert code reviewer analyzing a GitHub pull request diff.
 

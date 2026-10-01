@@ -17,6 +17,15 @@ from pydantic import BaseModel
 # code have to agree on is worth nailing down once, deliberately.
 
 
+# Which implementation runs a review. "loop" is the Week 2 hand-rolled
+# tool-calling loop; "graph" is the same loop expressed as a LangGraph
+# StateGraph (Week 3 Day 1). Both stay selectable per request this week
+# because comparing them is the point — see docs/week-3/week-3-plan.md,
+# Decision 9. A Literal (not a free string) so FastAPI rejects an unknown
+# engine name with a 422 before any review code runs.
+Engine = Literal["loop", "graph"]
+
+
 class ReviewFinding(BaseModel):
     file: str
     # WHY OPTIONAL: not every finding is about one specific line. A
