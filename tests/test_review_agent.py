@@ -92,7 +92,15 @@ def _mock_pr_fetch(respx_mock):
     )
 
 
-@pytest.fixture(params=list(ENGINES))
+# Only the SINGLE-AGENT engines: "graph" is a faithful port of "loop", so
+# the same scripted responses must produce the same behavior from both.
+# The "workflow" engine is deliberately a different architecture (triage,
+# parallel specialists, synthesis) — its scripts and expectations differ,
+# so it's tested separately in test_workflow_graph.py.
+SINGLE_AGENT_ENGINES = ("loop", "graph")
+
+
+@pytest.fixture(params=SINGLE_AGENT_ENGINES)
 def engine(request) -> str:
     return request.param
 
@@ -422,7 +430,7 @@ async def test_engines_send_identical_requests_for_the_same_script(respx_mock):
         ]
 
     requests_by_engine = {}
-    for engine_name in ENGINES:
+    for engine_name in SINGLE_AGENT_ENGINES:
         fake_client = FakeAnthropicClient(responses=script())
         await _run(fake_client, engine_name)
         requests_by_engine[engine_name] = _normalize(fake_client.messages.calls)

@@ -83,3 +83,71 @@ class LoopState(TypedDict):
     # node detects the end — see loop_graph.py on why outcomes are DATA
     # here rather than exceptions raised from inside a node.
     outcome: Literal["submitted", "no_submit", "exceeded"] | None
+
+
+# Summary: the workflow graph's runtime context — the same idea as
+# ReviewContext (used, never checkpointed), minus `head_sha`.
+#
+# WHY A SEPARATE TYPE RATHER THAN ReviewContext WITH head_sha OPTIONAL:
+# runtime context is fixed when a run STARTS, but the workflow only
+# discovers the PR's head commit DURING the run (its fetch_context node).
+# So head_sha lives in WorkflowState instead (a public commit hash, not a
+# secret — fine to checkpoint), and each specialist gets a complete
+# ReviewContext, head_sha included, built at the moment it starts. Two
+# precise types beat one type with a field that's "None until it isn't".
+@dataclass(frozen=True)
+class WorkflowContext:
+    http_client: httpx.AsyncClient
+    anthropic_client: anthropic.AsyncAnthropic
+    settings: Settings
+    installation_token: str
+    owner: str
+    repo: str
+    pr_number: int
+
+
+# Summary: what ONE specialist run receives — the payload of one
+# Send("run_specialist", ...) from the routing step. Each parallel
+# specialist gets its own copy, with only ITS files.
+class SpecialistInput(TypedDict):
+    specialist: str
+    pr_title: str
+    head_sha: str
+    inventory: str
+    files: list[dict]  # FileChange dumps, this specialist's scope only
+
+
+# Summary: the workflow graph's memory: the PR's facts, triage's per-file
+# result, and one result entry per specialist, merged at the end.
+#
+# The two reducers that make parallelism safe: `specialist_results` and
+# the token counts use operator.add, so when several specialists finish
+# in the SAME super-step, LangGraph concatenates their result lists and
+# sums their token counts. Without a reducer on a key that parallel nodes
+# both write, LangGraph raises InvalidUpdateError instead of silently
+# letting the last writer win — a race condition becomes a loud error.
+#
+# Note what is NOT here: any specialist's message history. Each
+# specialist's conversation (its tool calls, file contents, search
+# results) lives inside its own subgraph run and is discarded when it
+# finishes; only findings and token counts flow back up. That's this
+# week's answer to "context management across files": compact shared
+# GLOBAL context (the inventory) + isolated detailed LOCAL context per
+# specialist, instead of one ever-growing shared transcript.
+class WorkflowState(TypedDict):
+    pr_title: str
+    head_sha: str
+    # The raw diff exists only between fetch_context and triage; triage
+    # replaces it with "" once `files` holds the per-file slices, so the
+    # full diff isn't carried (or, from Day 4, checkpointed) for the rest
+    # of the run.
+    diff_text: str
+    files: list[dict]
+    inventory: str
+    specialist_results: Annotated[list[dict], operator.add]
+    input_tokens: Annotated[int, operator.add]
+    output_tokens: Annotated[int, operator.add]
+    findings: list[dict]
+    incomplete_specialists: list[str]
+    dropped_findings: int
+    outcome: Literal["submitted", "all_failed"] | None

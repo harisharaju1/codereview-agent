@@ -68,6 +68,19 @@ class AgentExceededMaxIterationsError(Exception):
         self.usage = usage
 
 
+# Only the multi-specialist workflow engine can raise this: every
+# specialist it started failed (timed out, hit an API error, ran out of
+# budget, or never submitted). One specialist failing is NOT this — that
+# produces a partial review with `incomplete_specialists` set. Zero
+# working specialists means there's no review at all, which is a failure
+# in the same sense as the two exceptions above, and carries usage for the
+# same reason: the specialists that ran still spent real tokens.
+class AllSpecialistsFailedError(Exception):
+    def __init__(self, message: str, usage: ReviewUsage):
+        super().__init__(message)
+        self.usage = usage
+
+
 SYSTEM_PROMPT = """You are an expert code reviewer analyzing a GitHub pull request diff.
 
 You have access to tools that let you investigate the change beyond what \

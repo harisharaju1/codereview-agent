@@ -19,11 +19,12 @@ from pydantic import BaseModel
 
 # Which implementation runs a review. "loop" is the Week 2 hand-rolled
 # tool-calling loop; "graph" is the same loop expressed as a LangGraph
-# StateGraph (Week 3 Day 1). Both stay selectable per request this week
+# StateGraph (Week 3 Day 1); "workflow" is triage + parallel specialists +
+# synthesis (Week 3 Day 2). All stay selectable per request this week
 # because comparing them is the point — see docs/week-3/week-3-plan.md,
 # Decision 9. A Literal (not a free string) so FastAPI rejects an unknown
 # engine name with a 422 before any review code runs.
-Engine = Literal["loop", "graph"]
+Engine = Literal["loop", "graph", "workflow"]
 
 
 class ReviewFinding(BaseModel):
@@ -50,6 +51,13 @@ class ReviewFinding(BaseModel):
     category: str
     severity: Literal["low", "medium", "high"]
     summary: str
+    # Which reviewer(s) reported this finding — set by the workflow
+    # engine's synthesis step (e.g. ["correctness", "security"] when two
+    # specialists flagged the same thing), empty for the single-agent
+    # engines. Deliberately NOT part of submit_review's hand-written input
+    # schema: the model never supplies it, and synthesis overwrites
+    # whatever is there, so a model can't misattribute its own finding.
+    sources: list[str] = []
 
 
 class ReviewUsage(BaseModel):
@@ -81,6 +89,24 @@ class ReviewResult(BaseModel):
     # exactly once per review.
     findings: list[ReviewFinding]
     usage: ReviewUsage
+    # The three fields below are only ever non-empty for the "workflow"
+    # engine; the defaults keep the single-agent engines' responses
+    # unchanged in meaning.
+    #
+    # Specialists that were started but produced no result (timed out,
+    # API error, ran out of budget, never submitted). A non-empty list
+    # means this is a PARTIAL review — never something a caller should
+    # mistake for "checked, and found nothing".
+    incomplete_specialists: list[str] = []
+    # Cost per specialist, so a review's total can be explained ("security
+    # cost X, correctness cost Y") — the basis for Day 3's per-specialist
+    # cost comparison. A specialist whose token count is unknown (timed
+    # out or hit an API error mid-run) is absent here, which makes
+    # `usage` a lower bound for that review.
+    usage_by_specialist: dict[str, ReviewUsage] = {}
+    # Findings left out because the review hit its cap
+    # (synthesize.MAX_FINDINGS), lowest-severity first.
+    dropped_findings: int = 0
 
 
 class FileContent(BaseModel):

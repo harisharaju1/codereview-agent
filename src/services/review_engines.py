@@ -7,6 +7,7 @@ from src.config.settings import Settings
 from src.schemas.review import Engine, ReviewResult
 from src.services.review_agent import run_review_agent
 from src.services.review_graph.loop_graph import run_review_graph
+from src.services.review_graph.workflow_graph import run_review_workflow
 
 # Every engine is a function with this exact signature:
 # (http client, anthropic client, settings, installation token, owner,
@@ -33,4 +34,5 @@ EngineFn = Callable[
 ENGINES: dict[Engine, EngineFn] = {
     "loop": run_review_agent,
     "graph": run_review_graph,
+    "workflow": run_review_workflow,
 }

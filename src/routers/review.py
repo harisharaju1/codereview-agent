@@ -12,6 +12,7 @@ from src.services.review_engines import ENGINES
 from src.services.review_tools import (
     AgentDidNotSubmitReviewError,
     AgentExceededMaxIterationsError,
+    AllSpecialistsFailedError,
 )
 
 router = APIRouter(prefix="/github-app", tags=["review"])
@@ -55,7 +56,11 @@ async def review_pull_request(
         return await run_engine(
             client, anthropic_client, settings, installation_token, owner, repo, number
         )
-    except (AgentDidNotSubmitReviewError, AgentExceededMaxIterationsError) as exc:
+    except (
+        AgentDidNotSubmitReviewError,
+        AgentExceededMaxIterationsError,
+        AllSpecialistsFailedError,
+    ) as exc:
         # A different failure mode from Day 3's GitHub-404 translation —
         # the review genuinely failed to produce a result, an
         # agent/upstream failure rather than "this PR doesn't exist."

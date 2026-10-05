@@ -132,3 +132,25 @@ def test_review_pull_request_rejects_unknown_engine_with_422(respx_mock):
         response = client.post("/github-app/repos/owner/repo/pulls/1/review?engine=bogus")
 
     assert response.status_code == 422
+
+
+def test_review_pull_request_all_specialists_failed_is_502_with_usage(respx_mock, monkeypatch):
+    _mock_installation_token(respx_mock)
+
+    from src.services.review_tools import AllSpecialistsFailedError
+
+    async def _raise_all_failed(*args, **kwargs):
+        raise AllSpecialistsFailedError(
+            "Every specialist failed — security: timed out",
+            usage=ReviewUsage(input_tokens=300, output_tokens=60, estimated_cost_usd=0.0006),
+        )
+
+    monkeypatch.setitem(ENGINES, "workflow", _raise_all_failed)
+
+    with _authenticated_client() as client:
+        response = client.post("/github-app/repos/owner/repo/pulls/1/review?engine=workflow")
+
+    assert response.status_code == 502
+    body = response.json()["detail"]
+    assert "Every specialist failed" in body["error"]
+    assert body["usage"]["input_tokens"] == 300
