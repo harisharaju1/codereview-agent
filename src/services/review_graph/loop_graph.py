@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 
 import anthropic
 import httpx
@@ -15,6 +16,7 @@ from src.services.review_tools import (
     MAX_ITERATIONS,
     SYSTEM_PROMPT,
     TOOL_DEFINITIONS,
+    TOOL_EXECUTORS,
     AgentDidNotSubmitReviewError,
     AgentExceededMaxIterationsError,
     ToolCall,
@@ -39,43 +41,87 @@ from src.services.review_tools import (
 #       if submitted: return        ->  outcome="submitted", route to END
 #   raise exceeded                  ->  outcome="exceeded", route to END
 # The `for` loop's control flow is now explicit edges, declared in one
-# place (build_loop_graph) and drawable as a diagram.
+# place (build_agent_graph) and drawable as a diagram.
 logger = logging.getLogger(__name__)
+
+
+# Summary: everything that distinguishes one tool-calling agent from
+# another — its name (for logs), its instructions, which data-fetching
+# tools it may use, and its iteration budget. The loop MECHANICS are the
+# same for all of them; build_agent_graph turns a config into a graph.
+#
+# WHY A CONFIG + FACTORY rather than one graph per agent written by hand:
+# Day 2's four specialists are the same loop with different briefs,
+# tools, and budgets. Day 1's faithful port is just one more config
+# (GENERALIST, below) — so the Day 1 parity tests now double as
+# regression tests for the factory every specialist is built from.
+@dataclass(frozen=True)
+class AgentConfig:
+    name: str
+    system_prompt: str
+    # Data-fetching tools only; submit_review is always included.
+    tool_names: frozenset[str]
+    max_iterations: int
+
+
+# The Day 1 port: the Week 2 prompt, all four tools, the Week 2 budget.
+GENERALIST = AgentConfig(
+    name="generalist",
+    system_prompt=SYSTEM_PROMPT,
+    tool_names=frozenset(TOOL_EXECUTORS),
+    max_iterations=MAX_ITERATIONS,
+)
+
 
 # WHY THIS NUMBER: LangGraph runs in "super-steps" (rounds in which every
 # scheduled node runs, then all their updates are applied), and caps them
 # per run at `recursion_limit` (default 25), raising GraphRecursionError
 # past it. One Week 2 iteration = two super-steps here (call_model +
-# run_tools), so MAX_ITERATIONS iterations need about 2*MAX_ITERATIONS.
-# The +5 headroom guarantees the PROJECT's own cap (MAX_ITERATIONS, with
-# its named exception and attached usage) always fires first; the
-# framework's cap stays as a safety net that should never fire. If
-# GraphRecursionError ever does fire, it means the routing below has a
-# bug — e.g. an edge that never reaches END.
-RECURSION_LIMIT = 2 * MAX_ITERATIONS + 5
+# run_tools), so N iterations need about 2*N. The +5 headroom guarantees
+# the PROJECT's own cap (the agent's max_iterations, with its named
+# exception and attached usage) always fires first; the framework's cap
+# stays as a safety net that should never fire. If GraphRecursionError
+# ever does fire, it means the routing below has a bug — e.g. an edge
+# that never reaches END.
+def recursion_limit_for(config: AgentConfig) -> int:
+    return 2 * config.max_iterations + 5
 
 
-def _log_label(context: ReviewContext) -> str:
-    return f"PR #{context.pr_number} review [graph]"
+RECURSION_LIMIT = recursion_limit_for(GENERALIST)
+
+
+def _log_label(config: AgentConfig, context: ReviewContext) -> str:
+    return f"PR #{context.pr_number} review [{config.name}]"
 
 
 # Summary: one model call — the body of one Week 2 loop iteration up to the
 # point of running tools. Returns only the keys it changes; the reducers
 # in LoopState append the assistant message and add the token counts.
-async def call_model(state: LoopState, runtime: Runtime[ReviewContext]) -> dict:
+async def _call_model(
+    config: AgentConfig, state: LoopState, runtime: Runtime[ReviewContext]
+) -> dict:
     context = runtime.context
+    label = _log_label(config, context)
     iteration = state["iteration"] + 1
-    logger.info("%s: iteration %d/%d", _log_label(context), iteration, MAX_ITERATIONS)
+    logger.info("%s: iteration %d/%d", label, iteration, config.max_iterations)
 
+    # Filtered from the shared TOOL_DEFINITIONS (never redefined), keeping
+    # their original order — so the generalist's request is byte-for-byte
+    # what the Week 2 loop sends, which the parity test checks.
+    tools = [
+        tool
+        for tool in TOOL_DEFINITIONS
+        if tool["name"] in config.tool_names or tool["name"] == "submit_review"
+    ]
     response = await context.anthropic_client.messages.create(
         model=context.settings.anthropic_model,
         max_tokens=4096,
-        system=SYSTEM_PROMPT,
-        tools=TOOL_DEFINITIONS,
-        tool_choice=tool_choice_for(iteration, MAX_ITERATIONS),
+        system=config.system_prompt,
+        tools=tools,
+        tool_choice=tool_choice_for(iteration, config.max_iterations),
         messages=state["messages"],
     )
-    logger.info("%s: stop_reason=%s", _log_label(context), response.stop_reason)
+    logger.info("%s: stop_reason=%s", label, response.stop_reason)
 
     update: dict = {
         "iteration": iteration,
@@ -88,9 +134,7 @@ async def call_model(state: LoopState, runtime: Runtime[ReviewContext]) -> dict:
         # Same failure the Week 2 loop raises AgentDidNotSubmitReviewError
         # for — recorded here as an outcome, not raised (see run_review_graph).
         logger.error(
-            "%s: stopped without submit_review (stop_reason=%s)",
-            _log_label(context),
-            response.stop_reason,
+            "%s: stopped without submit_review (stop_reason=%s)", label, response.stop_reason
         )
         update["outcome"] = "no_submit"
         return update
@@ -115,7 +159,9 @@ async def call_model(state: LoopState, runtime: Runtime[ReviewContext]) -> dict:
 # Summary: runs every tool the model asked for in its latest turn, through
 # the SAME execute_tool_turn the Week 2 loop uses, and either records a
 # successful submission or appends the tool results for the next turn.
-async def run_tools(state: LoopState, runtime: Runtime[ReviewContext]) -> dict:
+async def _run_tools(
+    config: AgentConfig, state: LoopState, runtime: Runtime[ReviewContext]
+) -> dict:
     context = runtime.context
     last_assistant_message = state["messages"][-1]
     tool_calls = [
@@ -131,7 +177,8 @@ async def run_tools(state: LoopState, runtime: Runtime[ReviewContext]) -> dict:
         context.owner,
         context.repo,
         context.head_sha,
-        log_label=_log_label(context),
+        log_label=_log_label(config, context),
+        allowed_tools=config.tool_names,
     )
 
     if turn.submitted_findings is not None:
@@ -141,7 +188,7 @@ async def run_tools(state: LoopState, runtime: Runtime[ReviewContext]) -> dict:
         }
 
     update: dict = {"messages": [{"role": "user", "content": turn.tool_results}]}
-    if state["iteration"] >= MAX_ITERATIONS:
+    if state["iteration"] >= config.max_iterations:
         # The Week 2 loop's `for` simply runs out here; in the graph, "no
         # iterations left" has to be an explicit decision, made right
         # after the last turn's tools ran — matching the loop exactly
@@ -155,7 +202,7 @@ async def run_tools(state: LoopState, runtime: Runtime[ReviewContext]) -> dict:
 # and they're kept OUT of the node bodies on purpose (the alternative —
 # nodes returning Command(goto=...) — spreads routing across node code).
 # With conditional edges, nodes only compute and every routing decision is
-# declared in build_loop_graph, which is also exactly what draw_mermaid()
+# declared in build_agent_graph, which is also exactly what draw_mermaid()
 # draws.
 def route_after_model(state: LoopState) -> str:
     return END if state["outcome"] is not None else "run_tools"
@@ -165,15 +212,24 @@ def route_after_tools(state: LoopState) -> str:
     return END if state["outcome"] is not None else "call_model"
 
 
-# Summary: declares the loop as a graph and compiles it.
+# Summary: declares the tool-calling loop for one agent config as a graph
+# and compiles it.
 #
 #   START -> call_model -(tool_use)-> run_tools -(keep going)-> call_model
 #                       \-(no tool_use)-> END   \-(submitted / exceeded)-> END
 #
-# The third argument to add_conditional_edges lists every node a router
-# may return, so LangGraph can validate the graph and draw it without
-# running it.
-def build_loop_graph() -> CompiledStateGraph:
+# The nodes are small closures over `config`, because LangGraph calls a
+# node with (state, runtime) only — the closure is how each compiled graph
+# carries its own agent's prompt, tools, and budget. The third argument to
+# add_conditional_edges lists every node a router may return, so LangGraph
+# can validate the graph and draw it without running it.
+def build_agent_graph(config: AgentConfig) -> CompiledStateGraph:
+    async def call_model(state: LoopState, runtime: Runtime[ReviewContext]) -> dict:
+        return await _call_model(config, state, runtime)
+
+    async def run_tools(state: LoopState, runtime: Runtime[ReviewContext]) -> dict:
+        return await _run_tools(config, state, runtime)
+
     builder = StateGraph(LoopState, context_schema=ReviewContext)
     builder.add_node("call_model", call_model)
     builder.add_node("run_tools", run_tools)
@@ -188,7 +244,7 @@ def build_loop_graph() -> CompiledStateGraph:
 # state and `context`, so one instance safely serves every concurrent
 # request. (Day 4 moves compilation into app startup, because the Postgres
 # checkpointer it will be compiled with only exists once the pool opens.)
-LOOP_GRAPH = build_loop_graph()
+LOOP_GRAPH = build_agent_graph(GENERALIST)
 
 
 # Summary: the graph engine's entry point — SAME signature as the Week 2
@@ -271,7 +327,7 @@ async def run_review_graph(
             logger.info(
                 "%s: submitted with %d findings after %d iteration(s) "
                 "(%d input tokens, %d output tokens, est. cost=%s)",
-                _log_label(context),
+                _log_label(GENERALIST, context),
                 len(findings),
                 final_state["iteration"],
                 usage.input_tokens,
@@ -288,7 +344,7 @@ async def run_review_graph(
         case _:
             logger.error(
                 "%s: exceeded %d iterations (%d input tokens, %d output tokens, est. cost=%s)",
-                _log_label(context),
+                _log_label(GENERALIST, context),
                 MAX_ITERATIONS,
                 usage.input_tokens,
                 usage.output_tokens,
