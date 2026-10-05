@@ -360,11 +360,68 @@ class ToolTurnResult:
     submitted_findings: list[ReviewFinding] | None
 
 
+_SCHEMAS_BY_TOOL_NAME = {tool["name"]: tool["input_schema"] for tool in TOOL_DEFINITIONS}
+
+
+# Summary: a human-readable description of what's wrong with a tool call's
+# arguments (unknown keys, missing required keys), or None if they match
+# the tool's declared schema.
+#
+# WHY THIS EXISTS — found in a real run, not anticipated: on Week 3 Day 1,
+# Haiku called get_file_content({"path": ..., "lines": [72, 88]}). There is
+# no `lines` parameter; the executor read `path`, ignored the rest, and
+# returned the WHOLE file — the call "succeeded" and the model was never
+# told its argument had no effect. Rejecting the call with a message that
+# names the bad argument and lists the accepted ones lets the model
+# correct itself on its next turn — the same self-correction pattern
+# submit_review's validation errors already use.
+#
+# WHY CHECK AGAINST THE HAND-WRITTEN JSON SCHEMAS rather than a Pydantic
+# model per tool: the schemas in TOOL_DEFINITIONS are exactly what the
+# model was shown. Checking against the same source means "what the model
+# was told" and "what gets enforced" can't drift apart. Only names are
+# checked (unknown / missing), not types — the executors already fail
+# loudly on a wrong type, and that failure already reaches the model as an
+# is_error result.
+#
+# Alternatives considered (docs/week-3/week-3-day-1.md): marking schemas
+# `"additionalProperties": false` (advisory to the model, not enforced),
+# and Anthropic's strict tool use (`"strict": true`, which makes the API
+# guarantee schema conformance — worth evaluating, but it constrains which
+# schema features are allowed and is a per-model capability to verify).
+def _argument_problem(call: ToolCall) -> str | None:
+    schema = _SCHEMAS_BY_TOOL_NAME.get(call.name)
+    if schema is None:
+        return None
+    accepted = set(schema.get("properties", {}))
+    unknown = sorted(set(call.input) - accepted)
+    missing = sorted(set(schema.get("required", [])) - set(call.input))
+    if not unknown and not missing:
+        return None
+    problems = []
+    if unknown:
+        problems.append(f"unknown argument(s): {', '.join(unknown)}")
+    if missing:
+        problems.append(f"missing required argument(s): {', '.join(missing)}")
+    accepted_text = ", ".join(sorted(accepted)) or "none"
+    return (
+        f"Invalid arguments for {call.name}: {'; '.join(problems)}. "
+        f"Accepted arguments: {accepted_text}. The call was not executed."
+    )
+
+
 # Summary: executes every tool call the model requested in ONE assistant
 # turn and returns the matching tool_result blocks, plus the validated
 # findings if this turn contained a successful submit_review. Exists so
-# every engine runs tools identically — lifted verbatim from the body of
-# Week 2's inner per-block loop, so the Week 2 loop's behavior is unchanged.
+# every engine runs tools identically — originally lifted verbatim from
+# the body of Week 2's inner per-block loop.
+#
+# `allowed_tools`: the data-fetching tools THIS agent may use (Day 2's
+# specialists each get a subset; None means all of them). A specialist's
+# request only LISTS its own tools, so the model normally can't call
+# another — but "shouldn't happen" is exactly what the unknown-tool check
+# below already guards against, and this is the same defense, one
+# parameter wide. submit_review is always allowed.
 async def execute_tool_turn(
     tool_calls: list[ToolCall],
     client: httpx.AsyncClient,
@@ -373,6 +430,7 @@ async def execute_tool_turn(
     repo: str,
     ref: str,
     log_label: str,
+    allowed_tools: frozenset[str] | None = None,
 ) -> ToolTurnResult:
     tool_results: list[dict] = []
     submitted_findings: list[ReviewFinding] | None = None
@@ -428,6 +486,31 @@ async def execute_tool_turn(
                     "type": "tool_result",
                     "tool_use_id": call.id,
                     "content": f"Unknown tool: {call.name}",
+                    "is_error": True,
+                }
+            )
+            continue
+
+        if allowed_tools is not None and call.name not in allowed_tools:
+            logger.warning("%s: %s is not available to this reviewer", log_label, call.name)
+            tool_results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": call.id,
+                    "content": f"Tool {call.name} is not available to this reviewer.",
+                    "is_error": True,
+                }
+            )
+            continue
+
+        argument_problem = _argument_problem(call)
+        if argument_problem is not None:
+            logger.warning("%s: %s", log_label, argument_problem)
+            tool_results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": call.id,
+                    "content": argument_problem,
                     "is_error": True,
                 }
             )
