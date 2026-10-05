@@ -12,6 +12,7 @@ dependencies = [
     "oxlint>=1.79.0",
     "pydantic-settings>=2.14.2",
     "pyjwt[crypto]>=2.13.0",
+    "unidiff>=1.0.1",
     "uvicorn[standard]>=0.52.0",
 ]
 
