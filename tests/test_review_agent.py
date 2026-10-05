@@ -76,13 +76,19 @@ class FakeAnthropicClient:
 
 
 def _mock_pr_fetch(respx_mock):
+    # The diff route is registered FIRST: respx serves the first matching
+    # route, and the bare PR_URL route below also matches the diff request
+    # (same URL, unconstrained Accept header). In the original order the
+    # "diff" these tests sent to the model was actually the PR's JSON
+    # metadata — harmless for the loop's own logic, but found on Week 3
+    # Day 2 when the workflow's triage step parsed it and saw zero files.
+    respx_mock.get(PR_URL, headers={"Accept": "application/vnd.github.v3.diff"}).mock(
+        return_value=httpx.Response(200, text="diff --git a/x b/x\n")
+    )
     respx_mock.get(PR_URL).mock(
         return_value=httpx.Response(
             200, json={"number": 7, "title": "Add feature", "head": {"sha": "abc123"}}
         )
-    )
-    respx_mock.get(PR_URL, headers={"Accept": "application/vnd.github.v3.diff"}).mock(
-        return_value=httpx.Response(200, text="diff --git a/x b/x\n")
     )
 
 
