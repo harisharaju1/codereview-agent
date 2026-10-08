@@ -10,7 +10,7 @@ Plan: `docs/week-3/week-3-day-2-plan.md`. Five commits, one idea each, every one
 | `6091cf6` | Test fix: register the diff mock before the metadata mock | 113 |
 | `703f55e` | The `workflow` engine: routing, parallel specialists, synthesis, partial reviews | 133 |
 
-**No paid Claude calls were made today** (per your instruction). Everything below was verified with fakes, with free GitHub API calls, or with one real end-to-end run that by design makes no model calls. The paid manual checks are listed at the end, awaiting approval.
+**Paid Claude calls were made only with explicit approval.** Building and testing used fakes, free GitHub API calls, and one real end-to-end run that by design makes no model calls. The single paid run (the large PR, $0.42) was approved separately; its results are near the end.
 
 ---
 
@@ -176,13 +176,42 @@ There's one `run_specialist` box, but at runtime it runs once per `Send`, all in
 - 🔍 Context isolation is asserted directly. The security specialist's first message contains `src/app.py`'s diff and not `requirements.txt`'s, the dependency specialist's is the reverse, both contain the full inventory, and neither contains the README or lockfile diff text.
 - 🔍 Tool subsets are asserted on the actual requests: security was *offered* exactly `get_file_content`, `search_codebase`, `submit_review`.
 
-## Awaiting approval: paid manual checks
+## Paid manual check: `engine=workflow` on PR #1 (approved, run 2026-10-08)
 
-| Run | Why it matters | Rough cost (Haiku) |
+Same PR, model (`claude-haiku-4-5`), and server as Day 1's loop run:
+
+| | Day 1 — `loop` | Day 2 — `workflow` |
 |---|---|---|
-| `engine=workflow` on PR #1 (large) | The plan's main manual check: does it finish, at what cost vs Day 1's $0.35, do specialists really run in parallel (start times in the log), and are the findings about code instead of docs? | ~$0.15–0.40 (3 code specialists × a few calls on ~54 KB, plus one small dependency run) |
+| Outcome | ✅ 3 findings | ✅ 10 findings, `incomplete_specialists: []` |
+| Model calls | 3 | 15 (security 5, performance 4, correctness 6; dependencies not scheduled, since no root manifest changed) |
+| Input / output tokens | 342,305 / 1,804 | 399,268 / 3,546 |
+| Est. cost | $0.351 | **$0.417** (security $0.143, performance $0.112, correctness $0.162) |
+| Wall-clock | 27.7 s | **26.9 s** |
+| What the findings are about | 2 of 3 about the *docs* in the diff | 10 of 10 about *code* |
 
-Results will be added here once run.
+### What this run shows
+
+**It's slightly more expensive, not cheaper, and my estimate was low.** I estimated $0.15–0.40, and the real cost was $0.417. Triage did cut the *first* message by 86%, but the specialists then did far more work than the loop: 15 model calls against the loop's 3, each re-sending its own growing history. The loop was cheap on Day 1 because it gave up investigating after 3 turns and reviewed docs. The honest comparison is **$0.35 for a shallow, docs-focused review vs $0.42 for a code-focused one about five times deeper, in the same wall-clock time.**
+
+**Where the tokens go: re-sent history.** Security averaged ~27k input tokens per call over 5 calls, and most of that is the same prefix (prompt, inventory, diffs, earlier file reads) sent again every turn. That's exactly what prompt caching discounts. The stretch goal deliberately not built today now has measured motivation; it belongs in Day 3's comparison, with `model_pricing.py` taught cache read/write pricing first.
+
+**Parallelism is real.** All three specialists logged `starting` within 3 ms of each other (`10:11:39.276`–`.279`), and their tool calls interleave through the log. That's three agents' worth of investigation in the time the single loop took for its three turns.
+
+**The forced final submission did its job three times.** The Day 1 retro noted this mechanism had only been exercised by tests. Here, **every specialist used its entire budget** (security 5/5, performance 4/4, correctness 6/6), and each `submit_review` came on its last, forced turn. Without Day 1's fix, all three would have ended with `exceeded N iterations`, and this review would have been `AllSpecialistsFailedError` after spending $0.42. It's also a signal the budgets may be tight for a PR this size, and Day 3's runs will show whether that's typical.
+
+**The batching instruction works, sometimes.** The correctness specialist requested four `run_linter` calls in its first turn, and performance and security batched 2–3 file reads per turn. Haiku batching is no longer the bottleneck it looked like in Week 2.
+
+**The same 23 KB file was read three times.** Every specialist independently fetched `src/services/review_agent.py`, which costs one GitHub call each and, more importantly, ~6k tokens re-sent on every later turn of every specialist. A per-review file cache shared by specialists would save the GitHub calls, but not the tokens, since each specialist still has to *see* the file. Noted for Week 4's planned Redis caching, with that limit stated.
+
+### Finding quality, honestly
+
+- ✅ **No more docs findings.** Day 1's top finding was the model quoting old Week 2 notes, and that cause (docs in the diff) is gone.
+- ⚠️ **Two "high" path-traversal findings are false positives.** They say an LLM-supplied path like `../../etc/passwd` reaches `fetch_file_content` unvalidated. But that path goes to *GitHub's Contents API*, scoped to one repository through an installation token, not to a filesystem, so it can't escape the repo. The model pattern-matched "user-controlled path" without checking where the path goes. Two more security findings (query "injection" into GitHub search, `Path(path).name` in the Python linter) are similarly theoretical.
+- ⚠️ **Both "linting" findings are false positives caused by our own tool, not the model.** Verified: the PR's `review_agent.py` passes `ruff check` with the repo's config, but `run_linter` runs ruff with `--isolated` on a temp file (a deliberate Week 2 choice, so *this* project's config never leaks into reviews of other repos). In isolation, ruff doesn't know `src.*` is first-party, so it reports I001 (import order) on correctly sorted imports. The fix is to lint with the *reviewed repo's* configuration (fetch its `pyproject.toml`/`ruff.toml` at the head SHA), or at least to suppress config-dependent rule families (`I`) in isolated mode. Recorded rather than fixed today.
+- ✅ **The performance findings are plausible and specific:** no caching of dependency lookups across repeated tool calls, sequential registry calls per package, and repeated identical tool calls with no deduplication. They're debatable in severity ("high" for repeated tool calls is generous), but they're about real code paths.
+- **Dedupe didn't trigger:** no two specialists reported the same (file, line, category). One run proves nothing about the duplicate rate; Day 3's repeated runs will.
+
+That's 10 findings, of which 4–5 are useful, 3 theoretical, and 2 tool-caused false positives. The seeded-bug PR planned for Day 3 is what will turn "useful vs noise" from my judgment into a measured recall number.
 
 ---
 
