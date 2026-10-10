@@ -71,6 +71,38 @@ This can't happen yet: `setup_action=request` is only reachable once the App's i
 
 ---
 
+## Week 2 — Tool-Use Agent Loop & Claude Integration
+
+### Agent-visible tool contract ≠ underlying Python function signature
+
+Every tool the agent can call (`get_file_content`, `search_codebase`, `check_dependency_versions`, `run_linter`) has two layers: a hand-written JSON Schema `input_schema` describing what Claude is allowed to supply, and a small **executor function** that bridges those narrower arguments to the real service function underneath, closing over everything the model shouldn't see or control (the `httpx.AsyncClient`, the installation token, `owner`/`repo`, and — deliberately, after reconsidering the original plan mid-build — the PR's fixed head ref). `run_linter`'s agent-visible shape is just `{"path": string}`; the executor is what actually fetches the file's content and hands it to the real `run_linter(path, content)`. The model never sees a credential, and never supplies an argument (like a ref) that has no legitimate second value to ever be.
+
+This is the same instinct as a controller action's DTO being narrower than the domain service method it calls — applied here to an LLM's view of a function instead of an HTTP caller's.
+
+### The tool-call loop: send → inspect → execute → append → resend
+
+`run_review_agent` (`services/review_agent.py`) is a hand-rolled implementation of the mechanic every LLM tool-calling API works the same way underneath: send the conversation plus tool definitions, inspect the response for `tool_use` requests, execute them locally, append both the model's request and the tool results back into the conversation, and resend — until the model calls a dedicated `submit_review` tool (not free text) with output validated against a real Pydantic model, or a hard iteration cap is hit. Built by hand deliberately, not via a framework, specifically so Week 3's LangGraph rebuild has a real baseline to compare against — see `docs/week-2/week-2-day-4-plan.md`'s background section for the mechanics in full.
+
+A validation error on `submit_review`'s input is fed back to the model as a recoverable error, not a hard failure — the same "let it self-correct within a bounded budget" idea `github_retry.py` already established for a flaky network call, now applied to a model producing malformed structured output.
+
+### Structured output via a dedicated tool call, not parsed free text
+
+`ReviewFinding` (the agent's final output) is validated directly against `tool_use.input` for a `submit_review` call, never extracted from the model's prose. This is the same "typed boundaries around external data" principle Week 1 applied to every GitHub response, now applied to an LLM's output for the first time — and it's more reliable in practice, too: a schema presented as a tool's `input_schema` gets followed far more consistently than an instruction to "reply in this JSON format" as plain text.
+
+### Cost is tracked per run, attached to both success and failure
+
+`ReviewResult` (success) and both agent-specific exceptions (`AgentDidNotSubmitReviewError`, `AgentExceededMaxIterationsError`) all carry a `ReviewUsage` — token counts summed across every loop iteration, plus an estimated USD cost from a small, isolated pricing table (`services/model_pricing.py`). Attaching usage to the exceptions too, not just the success path, was a fix made after a real failure: a review that exhausts its iteration budget has still spent real, billed tokens getting there, and that cost was invisible anywhere in the response until this was corrected. The pricing table matches by prefix, not exact equality, because Anthropic's real API responses echo back a dated snapshot suffix (`claude-haiku-4-5-20251001`) the configured model string never has — found only by testing against the real API, not from the mocked test suite, which is worth remembering as a category of gap mocks structurally cannot catch.
+
+### ⚠️ Known limitation: the agent's actual behavior is coupled to which model is configured
+
+`MAX_ITERATIONS` (8) and the system prompt's lack of any budget-awareness were tuned against no specific model or PR size. Testing against a real, sizeable PR with `claude-haiku-4-5` (chosen deliberately for cost during this testing phase) surfaced a real gap: Haiku calls exactly one tool per turn rather than batching several into one turn, burning through the iteration budget faster than a model with stronger planning would on the same PR — not a bug in the loop's mechanics, but a real behavioral coupling between "which model is configured" and "how large a PR this loop can actually finish reviewing." Not fixed yet; real options (raising the cap, adding explicit budget-awareness to the prompt, forcing `tool_choice` toward `submit_review` on the final iteration) are recorded in `docs/week-2/week-2-day-5.md`.
+
+### First instance of logging in this project
+
+`services/review_agent.py` is the first place this project logs anything — added specifically because an agent loop's actual path (which tools, how many times, why it stopped) is decided by the model at runtime and isn't reproducible from the request alone, unlike every other deterministic code path built so far. `logging.basicConfig(...)` lives once, in `main.py`, since nothing else configures it and Python's default logging behavior silently drops anything below `WARNING`. This is deliberately not a project-wide observability setup — just the first place the tradeoff was judged worth its cost.
+
+---
+
 ## How to Read This Doc Over Time
 
 Each week's section above should, by the time it's written, describe patterns that actually survived that week's work — not the plan for what a pattern would look like. If a pattern introduced in an earlier week gets revised or abandoned later (e.g. the in-memory session store eventually needs to move to Redis for a multi-instance deployment), that's worth noting in the week it actually changes, with a short pointer back to this section rather than silently rewriting history here.

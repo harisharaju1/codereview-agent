@@ -43,6 +43,37 @@ class ReviewFinding(BaseModel):
     summary: str
 
 
+class ReviewUsage(BaseModel):
+    # WHY THIS IS TOKENS SUMMED ACROSS EVERY ITERATION, NOT JUST THE LAST
+    # anthropic_client.messages.create() CALL:
+    # a review can take several loop iterations (tool call, result, tool
+    # call, ..., submit_review) — each one is a separate, separately
+    # billed request. Only ever reporting the final call's usage would
+    # silently undercount everything the earlier tool-calling turns cost.
+    input_tokens: int
+    output_tokens: int
+    # None specifically means "no dollar cost applies or could be
+    # computed" — not "this review was free." A caller-supplied/local
+    # model has no real per-token price this project knows; an
+    # unrecognized model id (the pricing table hasn't been updated for
+    # it) is the same situation. Collapsing either case to 0.0 would be
+    # actively misleading, the same reasoning DependencyFinding.latest_version
+    # already uses None for "couldn't determine" rather than a guessed value.
+    estimated_cost_usd: float | None
+
+
+class ReviewResult(BaseModel):
+    # WHY THIS WRAPS ReviewFinding RATHER THAN THE ENDPOINT RETURNING A
+    # BARE list[ReviewFinding] (WHAT IT RETURNED BEFORE THIS WAS ADDED):
+    # usage/cost describes the REVIEW RUN, not any individual finding —
+    # attaching it to each ReviewFinding would duplicate the same numbers
+    # across every entry (or force an awkward "put it on the first one"
+    # convention). A wrapper is the natural place for a value that exists
+    # exactly once per review.
+    findings: list[ReviewFinding]
+    usage: ReviewUsage
+
+
 class FileContent(BaseModel):
     # WHY THIS EXISTS INSTEAD OF get_file_content JUST RETURNING `str`:
     # a bare string return type would work today, but it throws away two
