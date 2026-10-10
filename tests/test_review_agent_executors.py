@@ -2,7 +2,7 @@ import json
 
 import httpx
 
-from src.services import review_agent
+from src.services import review_tools
 
 # These test the four executor functions directly, in isolation from the
 # loop — proving the "agent-facing narrower shape correctly bridges to the
@@ -20,7 +20,7 @@ async def test_execute_get_file_content_returns_file_content_json(respx_mock):
     )
 
     async with httpx.AsyncClient() as client:
-        result = await review_agent._execute_get_file_content(
+        result = await review_tools._execute_get_file_content(
             client, "token", "owner", "repo", "sha1", {"path": "a.py"}
         )
 
@@ -42,7 +42,7 @@ async def test_execute_search_codebase_returns_json_list(respx_mock):
     )
 
     async with httpx.AsyncClient() as client:
-        result = await review_agent._execute_search_codebase(
+        result = await review_tools._execute_search_codebase(
             client, "token", "owner", "repo", "sha1", {"query": "foo"}
         )
 
@@ -56,7 +56,7 @@ async def test_execute_check_dependency_versions_returns_json_list(respx_mock):
     )
 
     async with httpx.AsyncClient() as client:
-        result = await review_agent._execute_check_dependency_versions(
+        result = await review_tools._execute_check_dependency_versions(
             client, "token", "owner", "repo", "sha1", {}
         )
 
@@ -79,7 +79,7 @@ async def test_execute_run_linter_fetches_content_then_lints(respx_mock):
     )
 
     async with httpx.AsyncClient() as client:
-        result = await review_agent._execute_run_linter(
+        result = await review_tools._execute_run_linter(
             client, "token", "owner", "repo", "sha1", {"path": "bad.py"}
         )
 

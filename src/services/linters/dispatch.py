@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from src.schemas.lint import LintResult
 from src.services.linters.csharp_linter import run_dotnet_format
@@ -20,14 +21,37 @@ from src.services.linters.python_linter import run_ruff
 # call (dict dispatch vs. if/elif) landing differently in two places in
 # this same codebase, for a real, statable reason each time — not just
 # stylistic inconsistency.
-_LINTERS_BY_EXTENSION = {
-    ".py": run_ruff,
-    ".ts": run_oxlint,
-    ".tsx": run_oxlint,
-    ".js": run_oxlint,
-    ".jsx": run_oxlint,
-    ".cs": run_dotnet_format,
+#
+# WHY TWO TABLES (extension -> language, language -> linter) RATHER THAN
+# THE ORIGINAL SINGLE extension -> linter TABLE: the review workflow's
+# triage step (Week 3 Day 2) also needs "which language is this file?",
+# independent of linting. Splitting the table makes the extension map the
+# ONE place that answers that question for the whole codebase — triage
+# and run_linter can never disagree about what a `.tsx` file is.
+LintedLanguage = Literal["python", "js_ts", "csharp"]
+
+_LANGUAGES_BY_EXTENSION: dict[str, LintedLanguage] = {
+    ".py": "python",
+    ".ts": "js_ts",
+    ".tsx": "js_ts",
+    ".js": "js_ts",
+    ".jsx": "js_ts",
+    ".cs": "csharp",
 }
+
+_LINTERS_BY_LANGUAGE = {
+    "python": run_ruff,
+    "js_ts": run_oxlint,
+    "csharp": run_dotnet_format,
+}
+
+
+# Summary: the language this project has a real linter for, based on the
+# file's extension — or None for anything else (Markdown, YAML, Go, ...).
+# None means "no linter here", not "not code": a `.go` file is still code
+# that reviewers should read, it just can't be run through run_linter.
+def language_for_path(path: str) -> LintedLanguage | None:
+    return _LANGUAGES_BY_EXTENSION.get(Path(path).suffix)
 
 
 # Summary: the fourth and final tool — runs the correct real linter for a
@@ -37,10 +61,9 @@ _LINTERS_BY_EXTENSION = {
 # "lint this file" operation to reason about and call, never three
 # separate ones it would otherwise have to choose between itself.
 async def run_linter(path: str, content: str) -> LintResult:
-    extension = Path(path).suffix
-    linter = _LINTERS_BY_EXTENSION.get(extension)
+    language = language_for_path(path)
 
-    if linter is None:
+    if language is None:
         # An unsupported extension is a clear, structured, honest result —
         # never a silently empty findings list (indistinguishable from
         # "checked, and it's clean") and never a raised exception either
@@ -49,5 +72,5 @@ async def run_linter(path: str, content: str) -> LintResult:
         # needs to be able to tell apart from an actual error).
         return LintResult(supported=False, findings=[])
 
-    findings = await linter(path, content)
+    findings = await _LINTERS_BY_LANGUAGE[language](path, content)
     return LintResult(supported=True, findings=findings)

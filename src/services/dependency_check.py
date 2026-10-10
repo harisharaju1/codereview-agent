@@ -221,6 +221,27 @@ def _is_outdated(declared: str, latest: str) -> bool:
 _KNOWN_MANIFEST_NAMES = {"requirements.txt", "pyproject.toml", "package.json"}
 
 
+def _is_manifest_name(name: str) -> bool:
+    return name in _KNOWN_MANIFEST_NAMES or name.endswith(".csproj")
+
+
+# Summary: True when a repo-relative path is a dependency manifest THIS
+# tool would actually check — i.e. a known manifest filename at the repo
+# ROOT. Exists so the review workflow's triage step decides "should the
+# dependency specialist run for this PR?" with exactly the same rule the
+# tool itself uses, from one place.
+#
+# WHY ROOT-LEVEL ONLY, even though `services/api/requirements.txt` is a
+# manifest too: check_dependency_versions only ever discovers root-level
+# manifests (scope limitation #2 at the top of this module). Treating a
+# nested manifest change as "dependencies changed" would schedule a
+# specialist whose only tool can't see that file — a paid model call that
+# can only ever report nothing. If limitation #2 is lifted later, this
+# function is the one place the triage rule changes with it.
+def is_root_manifest_path(path: str) -> bool:
+    return "/" not in path and _is_manifest_name(path)
+
+
 async def _list_root_contents(
     client: httpx.AsyncClient, installation_token: str, owner: str, repo: str, ref: str
 ) -> list[dict]:
@@ -319,8 +340,7 @@ async def check_dependency_versions(
     manifest_paths = [
         entry["path"]
         for entry in root_entries
-        if entry["type"] == "file"
-        and (entry["name"] in _KNOWN_MANIFEST_NAMES or entry["name"].endswith(".csproj"))
+        if entry["type"] == "file" and _is_manifest_name(entry["name"])
     ]
 
     findings: list[DependencyFinding] = []
